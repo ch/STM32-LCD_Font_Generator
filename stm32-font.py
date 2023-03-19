@@ -21,11 +21,11 @@ def get_max_size(font):
     mw = 0
     mh = 0
     for ch in get_charset_perceived():
-        x,y,w,h = font.getbbox(ch)
-        if w > mw:
-            mw = w
-        if h > mh:
-            mh = h
+        left, top, right, bottom = font.getbbox(ch)
+        if right > mw:
+            mw = right
+        if bottom > mh:
+            mh = bottom
     return mw, mh
 
 
@@ -52,9 +52,28 @@ def generate_font_data(font, x_size, y_size):
 
     # find bytes per line needed to fit the font width
     bytes_per_line = math.ceil(x_size / 8)
-    empty_bit_padding = (bytes_per_line * 8 - x_size)
+
+    # create filename, remove invalid chars
+    filename = f'Font{font_name}{font_height}'
+    filename = ''.join(c if c.isalnum() else '' for c in filename)
+
+    # Output preview of font
+    ll = len(get_charset_perceived())
+    w = x_size*ll
+    h = y_size
+
+    size = [w, h]
+    im = Image.new("RGB", size)
+    drawer = ImageDraw.Draw(im)
 
     for i, ch in enumerate(get_charset_perceived()):
+        left, top, right, bottom = font.getbbox(ch)
+        x_start = i*x_size
+        x_end = (i+1)*x_size
+
+        f_start = x_start + (x_size - (right + left)) // 2
+        drawer.text((f_start, 0), ch, font=font)
+
         # the starting array index of the current char
         array_offset = i * (bytes_per_line * y_size)
         assert data.count('0x') == array_offset
@@ -63,30 +82,30 @@ def generate_font_data(font, x_size, y_size):
         data += '\r\n'
         data += f"// @{array_offset} '{ch}' ({font_width} pixels wide)\r\n"
 
-        # Calculate size and margins for centered text
-        xx, yy, w, h = font.getbbox(ch)
-        x_margin = (x_size - w) // 2
-        y_margin = (y_size - h) // 2
-        margin = (x_margin, y_margin)
-        im_size = (x_size, y_size)
-
-        # create image and write the char
-        im = Image.new("RGB", im_size)
-        drawer = ImageDraw.Draw(im)
-        drawer.text(margin, ch, font=font)
-        del drawer
+        x_coordinates = range(x_start, (x_end-1))
 
         # for each row, convert to hex representation
         for y in range(y_size):
             # get list of row pixels
-            x_coordinates = range(x_size)
             pixels = map(lambda x: im.getpixel((x, y))[0], x_coordinates)
             # convert to bin text
             bin_text = map(lambda val: '1' if val > THRESHOLD else '0', pixels)
             bin_text = ''.join(bin_text)
+            ll = len(bin_text)
+            for s in range((x_size - ll) // 2):
+                bin_text = '0' + bin_text + '0'
+            ll = len(bin_text)
+            if ll < x_size:
+                bin_text = bin_text + '0'
             # convert to c-style hex array
-            data += bin_to_c_hex_array(bin_text, bytes_per_line,
-                                       lsb_padding=empty_bit_padding)
+            data += bin_to_c_hex_array(bin_text, bytes_per_line)
+
+    for i, ch in enumerate(get_charset_perceived()):
+        x_start = i*x_size
+        x_end = (i+1)*x_size
+        drawer.rectangle([(x_start, 0), (x_end-1, h-1)], outline ="red")
+    im.save(f'{filename}.png')
+
     return data
 
 
@@ -122,15 +141,6 @@ sFONT {filename} = {{
     # Output font C header file
     with open(f'{filename}.c', 'w') as f:
         f.write(output)
-
-    # Output preview of font
-    xx,yy,w,h = font.getbbox(CHAR_SET)
-    size = [w,h]
-    im = Image.new("RGB", size)
-    drawer = ImageDraw.Draw(im)
-    drawer.text((0, 0), CHAR_SET, font=font)
-    im.save(f'{filename}.png')
-
 
 if __name__ == '__main__':
     # Command-line arguments
