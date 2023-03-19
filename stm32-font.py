@@ -22,10 +22,16 @@ def get_max_size(font):
     mh = 0
     for ch in get_charset_perceived():
         left, top, right, bottom = font.getbbox(ch)
-        if right > mw:
-            mw = right
-        if bottom > mh:
-            mh = bottom
+        if ch=='_':
+            if right > mw:
+                mw = right
+            if (bottom-top) > mh:
+                mh = bottom-top
+        else:
+            if right > mw:
+                mw = right
+            if bottom > mh:
+                mh = bottom
     return mw, mh
 
 
@@ -52,10 +58,6 @@ def generate_font_data(font, x_size, y_size):
 
     # find bytes per line needed to fit the font width
     bytes_per_line = math.ceil(x_size / 8)
-
-    # create filename, remove invalid chars
-    filename = f'Font{font_name}{font_height}'
-    filename = ''.join(c if c.isalnum() else '' for c in filename)
 
     # Output preview of font
     ll = len(get_charset_perceived())
@@ -100,14 +102,36 @@ def generate_font_data(font, x_size, y_size):
             # convert to c-style hex array
             data += bin_to_c_hex_array(bin_text, bytes_per_line)
 
-    for i, ch in enumerate(get_charset_perceived()):
-        x_start = i*x_size
-        x_end = (i+1)*x_size
-        drawer.rectangle([(x_start, 0), (x_end-1, h-1)], outline ="red")
-    im.save(f'{filename}.png')
-
     return data
+def output_preview(font, filename, x_size, y_size):
 
+    # Output preview of font
+    ll = len(get_charset_perceived())
+    ascent, descent = font.getmetrics()
+    w = x_size * ll
+    h = y_size
+
+    size = [w, h]
+    im = Image.new("RGB", size)
+    drawer = ImageDraw.Draw(im)
+
+    for i, ch in enumerate(get_charset_perceived()):
+        x_start = i * x_size
+        x_end = (i + 1) * x_size
+        drawer.rectangle([(x_start, 0), (x_end - 1, h - 1)], outline="red")
+        left, top, right, bottom = font.getbbox(ch)
+        drawer.rectangle([(x_start + left, top), (x_start + right, bottom)], outline="red")
+    drawer.line([(0, ascent), (w, ascent)], fill="blue")
+
+    for i, ch in enumerate(get_charset_perceived()):
+        left, top, right, bottom = font.getbbox(ch)
+        x_start = i * x_size
+        x_end = (i + 1) * x_size
+
+        f_start = x_start + (x_size - (right + left)) // 2
+        drawer.text((f_start, 0), ch, font=font)
+
+    im.save(f'{filename}.png')
 
 def output_files(font, font_width, font_height, font_data, font_name):
     generated_time = time.strftime("%Y-%m-%d %H:%M:%S")
@@ -141,6 +165,8 @@ sFONT {filename} = {{
     # Output font C header file
     with open(f'{filename}.c', 'w') as f:
         f.write(output)
+
+    output_preview(font, filename, font_width, font_height)
 
 if __name__ == '__main__':
     # Command-line arguments
